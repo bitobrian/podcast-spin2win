@@ -1,0 +1,127 @@
+﻿@page "/"
+@using System.Xml.Linq
+@using System.Text.RegularExpressions
+@using System.Net
+
+<input id="rssFeed" type="text" @bind-value="@siteUrl" />
+
+@if (theTimeIsNow)
+{
+
+    <div style="display: flex; flex-direction: column; align-items: center;">
+        <h3>Podcast Spin2Win</h3>
+
+        <button style="max-width: 10dvw;" @onclick="@GetRandomEpisodeTitle">➡️ Next Episode ➡️</button>
+        @if (!string.IsNullOrEmpty(_episodeTitle))
+        {
+            <h2>@_episodeTitle</h2>
+            <button style="max-width: 30dvw;" @onclick="@(() => revealDetails = true)">🪄 Click to reveal episode details 🪄</button>
+        }
+        <br/>
+        @if (revealDetails)
+        {
+            <div>
+                <h2>@_episodeDate.ToString("MMMM dd, yyyy")</h2>
+                <h2>@_episodeDescription</h2>
+            </div>
+        }
+    </div>
+}
+else
+{
+    <div style="display: flex; flex-direction: column; align-items: center;">
+        <h3>Podcast Spin2Win</h3>
+        <h2>🕙 It's not time yet! 🕙</h2>
+        <h2>⏰ Come back after 10:00 AM Central Time ⏰</h2>
+    </div>
+}
+
+@code
+{
+    private const string siteUrl = "Enter a valid RSS feed URL here";
+    private List<PodcastEpisode> episodes = new();
+    private List<PodcastEpisode> reviewedEpisodes = new();
+
+    private string _episodeTitle = "";
+    private string _episodeDescription = "";
+    private DateTimeOffset _episodeDate = DateTime.Now;
+    private bool revealDetails = false;
+    private bool theTimeIsNow = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await base.OnInitializedAsync();
+        
+        var centralTimeZone = TimeZoneInfo.FindSystemTimeZoneById("America/Chicago");
+        var centralTime = TimeZoneInfo.ConvertTime(DateTime.Now, centralTimeZone);
+        
+        var targetTime = new DateTime(2023, 6, 4, 10, 0, 0);
+        if (centralTime > targetTime)
+        {
+            theTimeIsNow = true;
+        }
+        else
+        {
+            return;
+        }
+    }
+
+    private async Task LoadRssFeed()
+    {
+        var client = new HttpClient();
+        var response = await client.GetAsync(siteUrl);
+        var content = await response.Content.ReadAsStringAsync();
+        var rss = XDocument.Parse(content);
+        var channel = rss.Root.Element("channel");
+        var items = channel.Elements("item");
+        
+        foreach (var item in items)
+        {
+            var itemTitle = item.Element("title").Value;
+            var itemDescription = item.Element("description").Value;
+            var itemDate = DateTime.Parse(item.Element("pubDate").Value);
+
+            episodes.Add(new PodcastEpisode(itemTitle, itemDescription, itemDate));
+        }
+        
+        episodes = episodes.OrderByDescending(x => x.publicationDate).ToList();
+
+        await Task.CompletedTask;
+    }
+    
+    private void GetRandomEpisodeTitle()
+    {
+        revealDetails = false;
+        
+        var random = new Random();
+        var randomIndex = random.Next(0, episodes.Count);
+        
+        var episode = episodes[randomIndex];
+        episodes.Remove(episode);
+        reviewedEpisodes.Add(episode);
+
+        _episodeTitle = episodes[randomIndex].title;
+        
+        var numberRegex = new Regex(@"\d{1,3}");
+        var match = numberRegex.Match(_episodeTitle);
+        if (match.Success)
+        {
+            _episodeTitle = _episodeTitle.Replace(match.Value, "");
+            
+            _episodeTitle = _episodeTitle.Replace("-", "");
+        }
+        
+        _episodeDescription = episodes[randomIndex].description;
+        _episodeDescription = WebUtility.HtmlDecode(_episodeDescription);
+        
+        var pTagRegex = new Regex(@"<p>(.*?)</p>");
+        var pTagMatch = pTagRegex.Match(_episodeDescription);
+        if (pTagMatch.Success)
+        {
+            _episodeDescription = pTagMatch.Groups[1].Value;
+        }
+
+        _episodeDate = episodes[randomIndex].publicationDate;
+    }
+    
+}
